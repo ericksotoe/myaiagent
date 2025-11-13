@@ -1,7 +1,9 @@
 import sys
 import os
+from prompts import system_prompt
 from google import genai
 from google.genai import types
+from functions.get_files_info import schema_get_files_info
 from dotenv import load_dotenv
 
 
@@ -23,6 +25,9 @@ def main():
         sys.exit(1)
 
     api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("Missing GEMINI_API_KEY in environment.")
+        sys.exit(1)
     client = genai.Client(api_key=api_key)
 
     user_prompt = " ".join(args)
@@ -38,15 +43,26 @@ def main():
 
 
 def generate_content(client, messages, verbose):
+    # avail func is a list of functions that the llm can use
+    available_functions = types.Tool(function_declarations=[schema_get_files_info,])
+
     response = client.models.generate_content(
         model="gemini-2.0-flash-001",
         contents=messages,
+        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
     )
+    
     if verbose:
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
-    print("Response:")
-    print(response.text)
+    if response.function_calls:
+        for func in response.function_calls:
+            print(f"Calling function: {func.name}({func.args})")
+    else:
+        print("Response:")
+        print(response.text)
+
+
 
 
 if __name__ == "__main__":
