@@ -1,13 +1,16 @@
-import sys
 import os
-from prompts import system_prompt
+import sys
+
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from functions.get_files_info import schema_get_files_info
+
+from functions.call_function import call_function
 from functions.get_file_content import schema_get_file_content
+from functions.get_files_info import schema_get_files_info
 from functions.run_python_file import schema_run_python_file
 from functions.write_file import schema_write_file
-from dotenv import load_dotenv
+from prompts import system_prompt
 
 
 def main():
@@ -47,25 +50,44 @@ def main():
 
 def generate_content(client, messages, verbose):
     # avail func is a list of functions that the llm can use
-    available_functions = types.Tool(function_declarations=[schema_get_files_info, schema_get_file_content, schema_run_python_file, schema_write_file])
+    available_functions = types.Tool(
+        function_declarations=[
+            schema_get_files_info,
+            schema_get_file_content,
+            schema_run_python_file,
+            schema_write_file,
+        ]
+    )
 
     response = client.models.generate_content(
         model="gemini-2.0-flash-001",
         contents=messages,
-        config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+        config=types.GenerateContentConfig(
+            tools=[available_functions], system_instruction=system_prompt
+        ),
     )
-    
+
     if verbose:
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
     if response.function_calls:
         for func in response.function_calls:
-            print(f"Calling function: {func.name}({func.args})")
+            func_call_result = call_function(func, verbose)
+            if (
+                not func_call_result.parts
+                or not getattr(func_call_result.parts[0], "function_response", None)
+                or func_call_result.parts[0].function_response.response is None
+            ):
+                raise RuntimeError(
+                    "Function call result missing function_response.response"
+                )
+
+            if verbose:
+                resp = func_call_result.parts[0].function_response.response
+                print(f"-> {resp['result']}")
     else:
         print("Response:")
         print(response.text)
-
-
 
 
 if __name__ == "__main__":
